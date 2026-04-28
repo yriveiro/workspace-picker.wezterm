@@ -45,9 +45,10 @@
 ---@field label string
 
 ---@class WorkspacePickerSavedState
----@field name? string
----@field path? string
+---@field cwd? string
 ---@field timestamp? integer
+
+---@alias WorkspacePickerSavedWorkspaceIndex table<string, WorkspacePickerSavedState>
 
 ---@class WorkspacePickerRestoreResult
 ---@field failed string[]

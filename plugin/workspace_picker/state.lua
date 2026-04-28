@@ -1,7 +1,7 @@
 local wezterm = require("wezterm") ---@type Wezterm
 
 ---@class WorkspacePickerLoadedChunk
----@return WorkspacePickerSavedState
+---@return WorkspacePickerSavedWorkspaceIndex
 
 local Cwd = require("workspace_picker.cwd")
 
@@ -17,10 +17,13 @@ function M.get_data_dir()
 	return wezterm.home_dir .. "/.local/share/workspace-picker"
 end
 
----@param workspace_name string
+local function workspace_state_index_dir()
+	return M.get_data_dir() .. "/state"
+end
+
 ---@return string
-local function workspace_state_path(workspace_name)
-	return M.get_data_dir() .. "/" .. workspace_name .. ".lua"
+local function workspace_state_index_path()
+	return workspace_state_index_dir() .. "/saved-workspaces.lua"
 end
 
 ---@return WorkspacePickerGlobalState
@@ -31,18 +34,45 @@ function M.get_global_state()
 end
 
 ---@param state WorkspacePickerSavedState|nil
----@return string
-local function serialize_workspace_state(state)
+---@return WorkspacePickerSavedState
+local function normalize_workspace_state(state)
 	state = state or {}
 
-	local lines = {
-		"return {",
-		string.format("  name = %q,", tostring(state.name or "")),
-		string.format("  timestamp = %d,", tonumber(state.timestamp) or 0),
+	local normalized = {
+		timestamp = tonumber(state.timestamp) or 0,
 	}
 
-	if type(state.path) == "string" and state.path ~= "" then
-		table.insert(lines, string.format("  path = %q,", state.path))
+	if type(state.cwd) == "string" and state.cwd ~= "" then
+		normalized.cwd = state.cwd
+	end
+
+	return normalized
+end
+
+---@param saved_workspaces WorkspacePickerSavedWorkspaceIndex
+---@return string
+local function serialize_saved_workspaces(saved_workspaces)
+	local lines = {
+		"return {",
+	}
+
+	local workspace_names = {}
+	for workspace_name in pairs(saved_workspaces) do
+		table.insert(workspace_names, workspace_name)
+	end
+
+	table.sort(workspace_names)
+
+	for _, workspace_name in ipairs(workspace_names) do
+		local state = normalize_workspace_state(saved_workspaces[workspace_name])
+		table.insert(lines, string.format("  [%q] = {", workspace_name))
+
+		if type(state.cwd) == "string" and state.cwd ~= "" then
+			table.insert(lines, string.format("    cwd = %q,", state.cwd))
+		end
+
+		table.insert(lines, string.format("    timestamp = %d,", tonumber(state.timestamp) or 0))
+		table.insert(lines, "  },")
 	end
 
 	table.insert(lines, "}")
@@ -70,7 +100,7 @@ end
 
 ---@param content string
 ---@param file_path string
----@return WorkspacePickerSavedState|nil
+---@return WorkspacePickerSavedWorkspaceIndex|nil
 local function load_lua_workspace_state(content, file_path)
 	local chunk = load(content, "@" .. file_path, "t", {}) ---@type WorkspacePickerLoadedChunk|nil
 	if not chunk then
@@ -85,91 +115,108 @@ local function load_lua_workspace_state(content, file_path)
 	return state
 end
 
+---@return WorkspacePickerSavedWorkspaceIndex
+local function load_saved_workspaces()
+	local content = read_file_contents(workspace_state_index_path())
+	if not content then
+		return {}
+	end
+
+	local state = load_lua_workspace_state(content, workspace_state_index_path())
+	if type(state) ~= "table" then
+		return {}
+	end
+
+	local saved_workspaces = {}
+	for workspace_name, workspace_state in pairs(state) do
+		if type(workspace_name) == "string" and type(workspace_state) == "table" then
+			saved_workspaces[workspace_name] = normalize_workspace_state(workspace_state)
+		end
+	end
+
+	return saved_workspaces
+end
+
+---@param directory_path string
 ---@return boolean
-local function ensure_data_dir()
-	local data_dir = M.get_data_dir()
-	if data_dir == "" then
+local function ensure_directory(directory_path)
+	if directory_path == "" then
 		return false
 	end
 
 	if wezterm.target_triple:find("windows") then
 		local command = string.format(
 			"New-Item -ItemType Directory -Force -LiteralPath '%s' | Out-Null",
-			data_dir:gsub("'", "''")
+			directory_path:gsub("'", "''")
 		)
 		local ok = wezterm.run_child_process({ "powershell.exe", "-NoProfile", "-Command", command })
 		return ok
 	end
 
-	local ok = wezterm.run_child_process({ "mkdir", "-p", data_dir })
+	local ok = wezterm.run_child_process({ "mkdir", "-p", directory_path })
 	return ok
 end
 
----@param workspace_name string
----@param state WorkspacePickerSavedState|nil
+---@param saved_workspaces WorkspacePickerSavedWorkspaceIndex
 ---@return boolean
-function M.save_workspace_state(workspace_name, state)
-	if not ensure_data_dir() then
+local function write_saved_workspaces(saved_workspaces)
+	if not ensure_directory(M.get_data_dir()) then
 		return false
 	end
 
-	local file = io.open(workspace_state_path(workspace_name), "w")
+	if not ensure_directory(workspace_state_index_dir()) then
+		return false
+	end
+
+	local file = io.open(workspace_state_index_path(), "w")
 	if not file then
 		return false
 	end
 
-	local serialized = serialize_workspace_state(state)
+	local serialized = serialize_saved_workspaces(saved_workspaces)
 	local ok = file:write(serialized)
 	file:close()
 	return ok ~= nil
 end
 
 ---@param workspace_name string
----@return WorkspacePickerSavedState|nil
-function M.load_workspace_state(workspace_name)
-	local file_path = workspace_state_path(workspace_name)
-	local content = read_file_contents(file_path)
-	if not content then
-		return nil
+---@param state WorkspacePickerSavedState|nil
+---@return boolean
+function M.save_workspace_state(workspace_name, state)
+	local saved_workspaces = load_saved_workspaces()
+	saved_workspaces[workspace_name] = normalize_workspace_state(state)
+
+	if not write_saved_workspaces(saved_workspaces) then
+		return false
 	end
 
-	return load_lua_workspace_state(content, file_path)
+	return true
+end
+
+---@param workspace_name string
+---@return WorkspacePickerSavedState|nil
+function M.load_workspace_state(workspace_name)
+	return load_saved_workspaces()[workspace_name]
 end
 
 ---@param workspace_name string
 ---@return boolean
 function M.delete_workspace_state(workspace_name)
-	local ok, err = os.remove(workspace_state_path(workspace_name))
-	if ok then
-		return true
+	local saved_workspaces = load_saved_workspaces()
+	saved_workspaces[workspace_name] = nil
+	if not write_saved_workspaces(saved_workspaces) then
+		return false
 	end
 
-	if type(err) == "string" then
-		local lowered = err:lower()
-		if lowered:find("no such file", 1, true) or lowered:find("cannot find", 1, true) then
-			return true
-		end
-	end
-
-	return false
+	return true
 end
 
 ---@return string[]
 function M.get_saved_workspaces()
-	local data_dir = M.get_data_dir()
-	if data_dir == "" then
-		return {}
-	end
-
 	local workspaces = {}
-	local seen = {}
 
-	for _, file in ipairs(wezterm.glob(data_dir .. "/*.lua", data_dir) or {}) do
-		local workspace_name = file:match("([^/\\]+)%.lua$")
-		if workspace_name and not seen[workspace_name] then
-			seen[workspace_name] = true
-			table.insert(workspaces, workspace_name)
-		end
+	for workspace_name in pairs(load_saved_workspaces()) do
+		table.insert(workspaces, workspace_name)
 	end
 
 	return workspaces
@@ -265,8 +312,8 @@ function M.restore_saved_workspaces(opts)
 				workspace = workspace_name,
 			}
 
-			if type(state.path) == "string" and state.path ~= "" then
-				spawn_args.cwd = state.path
+			if type(state.cwd) == "string" and state.cwd ~= "" then
+				spawn_args.cwd = state.cwd
 			end
 
 			if opts.cmd and not startup_cmd_consumed then

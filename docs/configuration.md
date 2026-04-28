@@ -125,7 +125,7 @@ config.keys = {
 
 Returns an action that prompts for a saved workspace name and persists the current workspace state.
 
-The saved state includes the working directory used when restoring that workspace later.
+Saved workspaces are stored together in a single metadata file. Each saved entry records the workspace `cwd` and a save timestamp used by the restore and picker UIs.
 
 **Returns:** WezTerm action
 
@@ -145,6 +145,8 @@ config.keys = {
 ### `save_all_workspaces()`
 
 Returns an action that saves every live workspace.
+
+All saved workspace entries are written to the shared metadata file, with each entry including its `cwd` and timestamp.
 
 **Returns:** WezTerm action
 
@@ -275,7 +277,7 @@ workspace_picker.apply_to_config(config, {
 
 ### `get_data_dir()`
 
-Return the directory where saved workspace state files are stored.
+Return the directory where the shared saved workspace metadata file is stored.
 
 **Returns:** string
 

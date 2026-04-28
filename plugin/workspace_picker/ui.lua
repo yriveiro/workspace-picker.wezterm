@@ -39,8 +39,8 @@ function M.format_saved_workspace_label(saved_name, state)
 		table.insert(details, os.date("%Y-%m-%d %H:%M", state.timestamp))
 	end
 
-	if type(state) == "table" and type(state.path) == "string" and state.path ~= "" then
-		table.insert(details, state.path)
+	if type(state) == "table" and type(state.cwd) == "string" and state.cwd ~= "" then
+		table.insert(details, state.cwd)
 	end
 
 	local label = {
