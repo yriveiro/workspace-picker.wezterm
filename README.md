@@ -2,10 +2,26 @@
 
 WezTerm workspace switcher with [zoxide](https://github.com/ajeetdsouza/zoxide) integration.
 
+- Full configuration reference: [`docs/configuration.md`](docs/configuration.md)
+- Example configs: [`examples/basic.lua`](examples/basic.lua), [`examples/custom.lua`](examples/custom.lua), [`examples/manual-keybindings.lua`](examples/manual-keybindings.lua)
+
+## Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Configuration Examples](#configuration-examples)
+- [How It Works](#how-it-works)
+- [Troubleshooting](#troubleshooting)
+
 ## Features
 
 - 🚀 **Quick workspace switching** - Fuzzy search through existing workspaces
 - 📂 **Zoxide integration** - Create workspaces from your frequently accessed directories
+- 💾 **Workspace persistence** - Saved workspaces keep the working directory needed for restore
+- 🔄 **Startup restore** - Saved workspaces restore when WezTerm starts, without affecting new windows
 - 🎨 **Customizable colors** - Match your terminal theme
 - 🏷️ **Customizable labels** - Personalize workspace and directory labels
 - ⌨️ **Flexible keybindings** - Configure or disable default shortcuts
@@ -22,7 +38,7 @@ Add this to your `wezterm.lua`:
 
 ```lua
 local wezterm = require("wezterm")
-local workspace_picker = wezterm.plugin.require("https://github.com/isseii10/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 local config = wezterm.config_builder()
 
@@ -37,13 +53,13 @@ return config
 ### Default Keybindings
 
 | Key | Action |
-|-----|--------|
+| --- | --- |
 | `LEADER` + `w` | Open workspace picker |
 
 ### In the Picker
 
 - `s`: Save all workspaces
-- `r`: Restore all saved workspaces
+- `d`: Delete a saved workspace
 - `c`: Create new workspace manually
 - `e`: Rename current workspace
 - `Esc`: Close the picker
@@ -51,24 +67,39 @@ return config
 - Press `/` to start fuzzy search
 - Press `Enter` to select
 
-> **Note**: `LEADER` key must be configured in your WezTerm config. See [WezTerm Leader Key docs](https://wezfurlong.org/wezterm/config/keys.html#leader-key).
+### Restore Behavior
+
+Saved workspaces are restored automatically from `gui-startup`, which means:
+
+- restore runs when WezTerm starts
+- opening a new window later does not trigger a restore
+- already-restored workspaces are skipped
+- the saved working directory is used when recreating the workspace
+
+> [!NOTE]
+> `LEADER` key must be configured in your WezTerm config. See the [WezTerm leader key docs](https://wezfurlong.org/wezterm/config/keys.html#leader-key).
+
+> [!TIP]
+> If you want a manual restore picker, bind `workspace_picker.show_restore_menu(window, pane)` to a key.
 
 ### Screenshots
 
-**Normal Mode:**
-<br>
-<img src="images/picker-norm.png" alt="Normal Mode" width="600">
+#### Normal Mode
 
-**Fuzzy Search Mode:**
-<br>
-<img src="images/picker-search.png" alt="Fuzzy Mode" width="600">
+![Normal Mode](images/picker-norm.png)
+
+#### Fuzzy Search Mode
+
+![Fuzzy Search Mode](images/picker-search.png)
 
 ## Configuration
+
+For the full API and all configuration options, see [`docs/configuration.md`](docs/configuration.md).
 
 ### Custom Setup
 
 ```lua
-local workspace_picker = wezterm.plugin.require("https://github.com/isseii10/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 -- Initialize with custom settings
 workspace_picker.setup({
@@ -90,6 +121,7 @@ workspace_picker.setup({
 		zoxide = "[Zoxide]", -- Label for zoxide entries
 		current = "<- current", -- Indicator for current workspace
 	},
+	restore_on_gui_startup = true,
 	activate_keytable = { mods = "LEADER", key = "w" },
 
 })
@@ -103,7 +135,7 @@ workspace_picker.apply_to_config(config)
 If you want to set up keybindings manually:
 
 ```lua
-local workspace_picker = wezterm.plugin.require("https://github.com/isseii10/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 workspace_picker.setup({
 	activate_keytable = false,
@@ -126,7 +158,7 @@ config.keys = {
 You can also use the plugin's functions directly:
 
 ```lua
-local workspace_picker = wezterm.plugin.require("https://github.com/isseii10/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 workspace_picker.setup({
 	activate_keytable = false,
@@ -146,18 +178,46 @@ config.keys = {
 		action = workspace_picker.create_workspace_manually(),
 	},
 	{
+		key = "s",
+		mods = "LEADER",
+		action = workspace_picker.save_workspace(),
+	},
+	{
 		key = "e",
 		mods = "LEADER",
 		action = workspace_picker.rename_workspace(),
 	},
+	{
+		key = "r",
+		mods = "LEADER|SHIFT",
+		action = wezterm.action_callback(function(win, pane)
+			workspace_picker.show_restore_menu(win, pane)
+		end),
+	},
+	{
+		key = "d",
+		mods = "LEADER|SHIFT",
+		action = wezterm.action_callback(function(win, pane)
+			workspace_picker.show_delete_menu(win, pane)
+		end),
+	},
 }
+```
+
+### Disable Startup Restore
+
+```lua
+workspace_picker.setup({
+	restore_on_gui_startup = false,
+})
 ```
 
 ## Configuration Examples
 
 ### Different Color Schemes
 
-**Catppuccin Mocha:**
+#### Catppuccin Mocha
+
 ```lua
 workspace_picker.setup({
 	colors = {
@@ -170,7 +230,8 @@ workspace_picker.setup({
 })
 ```
 
-**Gruvbox:**
+#### Gruvbox
+
 ```lua
 workspace_picker.setup({
 	colors = {
@@ -185,7 +246,8 @@ workspace_picker.setup({
 
 ### Custom Labels
 
-**Using Emojis:**
+#### Using Emojis
+
 ```lua
 workspace_picker.setup({
 	labels = {
@@ -196,7 +258,8 @@ workspace_picker.setup({
 })
 ```
 
-**Shorter Labels:**
+#### Shorter Labels
+
 ```lua
 workspace_picker.setup({
 	labels = {
@@ -222,13 +285,16 @@ workspace_picker.setup({
 1. **Workspace List**: Shows all existing WezTerm workspaces (current workspace is highlighted)
 2. **Zoxide Integration**: Lists frequently accessed directories from zoxide
 3. **Workspace Creation**: Selecting a zoxide directory creates a new workspace with that directory as the working directory
-4. **Fuzzy Search**: Type `/` in the picker to filter workspaces and directories
+4. **Workspace Save**: Saving records the current workspace state under the name you choose, including the working directory for later restore
+5. **Startup Restore**: Saved workspaces are recreated during `gui-startup`, skipping any that already have live windows
+6. **Fuzzy Search**: Type `/` in the picker to filter workspaces and directories
 
 ## Troubleshooting
 
 ### Zoxide directories not showing
 
 Make sure zoxide is:
+
 1. Installed: `brew install zoxide` (macOS) or follow [installation guide](https://github.com/ajeetdsouza/zoxide#installation)
 2. Initialized in your shell: Add `eval "$(zoxide init zsh)"` to `.zshrc` (or equivalent for your shell)
 3. Path is correct in the config (default: `/opt/homebrew/bin/zoxide`)
@@ -240,6 +306,7 @@ Ensure your WezTerm version supports color customization in InputSelector. Try u
 ## Contributing
 
 Contributions are welcome! Feel free to:
+
 - Report bugs
 - Suggest new features
 - Submit pull requests
@@ -252,4 +319,4 @@ MIT License - see LICENSE file for details
 
 - [WezTerm](https://wezfurlong.org/wezterm/) - The amazing terminal emulator
 - [zoxide](https://github.com/ajeetdsouza/zoxide) - Smart directory jumper
-- Inspired by [smart_workspace_switcher.wezterm](https://github.com/MLFlexer/smart_workspace_switcher.wezterm)
+- Inspired on [isseii10/workspace-picker.wezterm](https://github.com/isseii10/workspace-picker.wezterm)
