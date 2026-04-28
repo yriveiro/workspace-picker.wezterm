@@ -46,7 +46,7 @@ return config
 - `r`: Restore all saved workspaces
 - `c`: Create new workspace manually
 - `e`: Rename current workspace
-- `q` or `Esc`: Close the picker
+- `Esc`: Close the picker
 - Use `↑`/`↓` or `j`/`k` to navigate
 - Press `/` to start fuzzy search
 - Press `Enter` to select

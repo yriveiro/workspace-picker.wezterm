@@ -20,7 +20,7 @@ local act = wezterm.action
 
 local M = {}
 
-local selector_alphabet = "q1234567890abcdefghilmnoprstuvwxyz"
+local selector_alphabet = "srce1234567890abdfghilmnoptuvwxyz"
 
 local function escape_lua_pattern(text)
 	return text:gsub("(%W)", "%%%1")
@@ -191,17 +191,6 @@ local function notify(window, title, body)
 	window:toast_notification(title, body)
 end
 
-local function close_picker(window, pane)
-	window:perform_action(act.PopKeyTable, pane)
-end
-
-local function make_quit_choice()
-	return {
-		id = "quit",
-		label = "q  Close picker",
-	}
-end
-
 local function show_input_selector(window, pane, opts)
 	window:perform_action(
 		act.InputSelector({
@@ -216,11 +205,11 @@ local function show_input_selector(window, pane, opts)
 	)
 end
 
-	-- Default configuration
-	---@type WorkspacePickerConfig
-	local default_config = {
-		-- Path to zoxide command
-		zoxide_path = "/opt/homebrew/bin/zoxide",
+-- Default configuration
+---@type WorkspacePickerConfig
+local default_config = {
+	-- Path to zoxide command
+	zoxide_path = "/opt/homebrew/bin/zoxide",
 	-- Color settings
 	colors = {
 		workspace_prefix = "#9ece6a", -- Green
@@ -230,14 +219,14 @@ end
 		path = "#565f89", -- Dark gray
 	},
 	-- Label settings
-		labels = {
-			workspace = "[Workspace]",
-			zoxide = "[Zoxide]",
-			current = "<- current",
-		},
-		-- Keybind to open the workspace picker (set to false to disable)
-		activate_keytable = { mods = "LEADER", key = "w" },
-	}
+	labels = {
+		workspace = "[Workspace]",
+		zoxide = "[Zoxide]",
+		current = "<- current",
+	},
+	-- Keybind to open the workspace picker (set to false to disable)
+	activate_keytable = { mods = "LEADER", key = "w" },
+}
 
 -- Store user configuration
 ---@type WorkspacePickerConfig|nil
@@ -329,7 +318,25 @@ function M.show_workspace_selector(window, pane)
 
 	---@type WorkspacePickerChoice[]
 	local choices = {}
-	table.insert(choices, make_quit_choice())
+	table.insert(choices, {
+		id = "save-all",
+		label = "s  Save all workspaces",
+	})
+	table.insert(choices, {
+		id = "restore-all",
+		label = "r  Restore all workspaces",
+	})
+	table.insert(choices, {
+		id = "create-workspace",
+		label = "c  Create new workspace",
+	})
+	table.insert(choices, {
+		id = "rename-workspace",
+		label = "e  Rename current workspace",
+	})
+
+	local workspace_choices = {}
+	local default_workspace_choice
 
 	-- Add existing workspace list
 	for _, name in ipairs(wezterm.mux.get_workspace_names()) do
@@ -352,18 +359,24 @@ function M.show_workspace_selector(window, pane)
 			})
 		end
 
+		local choice = {
+			id = "ws:" .. name,
+			label = label,
+		}
+
 		if name == "default" then
-			-- Display default workspace at the top
-			table.insert(choices, 1, {
-				id = "ws:" .. name,
-				label = label,
-			})
+			default_workspace_choice = choice
 		else
-			table.insert(choices, {
-				id = "ws:" .. name,
-				label = label,
-			})
+			table.insert(workspace_choices, choice)
 		end
+	end
+
+	if default_workspace_choice then
+		table.insert(workspace_choices, 1, default_workspace_choice)
+	end
+
+	for _, choice in ipairs(workspace_choices) do
+		table.insert(choices, choice)
 	end
 
 	-- Get and add zoxide directory list
@@ -400,12 +413,26 @@ function M.show_workspace_selector(window, pane)
 		fuzzy_description = "(wezterm) Select workspace or directory: ",
 		on_select = function(win, p, id)
 			if not id then
-				close_picker(win, p)
 				return
 			end
 
-			if id == "quit" then
-				close_picker(win, p)
+			if id == "save-all" then
+				win:perform_action(M.save_all_workspaces(), p)
+				return
+			end
+
+			if id == "restore-all" then
+				win:perform_action(M.restore_all_workspaces(), p)
+				return
+			end
+
+			if id == "create-workspace" then
+				win:perform_action(M.create_workspace_manually(), p)
+				return
+			end
+
+			if id == "rename-workspace" then
+				win:perform_action(M.rename_workspace(), p)
 				return
 			end
 
@@ -416,7 +443,6 @@ function M.show_workspace_selector(window, pane)
 
 			if id:match("^ws:") then
 				local workspace_name = id:gsub("^ws:", "")
-				close_picker(win, p)
 				win:perform_action(act.SwitchToWorkspace({ name = workspace_name }), p)
 			elseif id:match("^zoxide:") then
 				local dir = id:gsub("^zoxide:", "")
@@ -426,7 +452,6 @@ function M.show_workspace_selector(window, pane)
 				end
 
 				local workspace_name = dir:match("([^/]+)$")
-				close_picker(win, p)
 				win:perform_action(
 					act.SwitchToWorkspace({
 						name = workspace_name,
@@ -529,8 +554,6 @@ function M.save_all_workspaces()
 			)
 			notify(win, "Workspace Save Completed With Errors", "Saved " .. saved .. " workspaces, failed for: " .. table.concat(failed, ", "))
 		end
-
-		close_picker(win, pane)
 	end)
 end
 
@@ -540,7 +563,6 @@ function M.restore_all_workspaces()
 	return wezterm.action_callback(function(win, pane)
 		local saved = get_saved_workspaces()
 		if #saved == 0 then
-			close_picker(win, pane)
 			notify(win, "No Saved Workspaces", "No saved workspaces found. Open the picker, then press s.")
 			return
 		end
@@ -568,8 +590,6 @@ function M.restore_all_workspaces()
 				end
 			end
 		end
-
-		close_picker(win, pane)
 
 		if #failed == 0 then
 			wezterm.log_info(
@@ -607,7 +627,6 @@ function M.show_restore_menu(window, pane)
 
 	---@type WorkspacePickerRestoreChoice[]
 	local choices = {}
-	table.insert(choices, make_quit_choice())
 
 	for _, name in ipairs(saved) do
 		local state = load_workspace_state(name)
@@ -632,8 +651,7 @@ function M.show_restore_menu(window, pane)
 		description = "(wezterm) Restore a saved workspace: ",
 		fuzzy_description = "(wezterm) Restore workspace: ",
 		on_select = function(win, p, id)
-			if not id or id == "quit" then
-				close_picker(win, p)
+			if not id then
 				return
 			end
 
@@ -641,7 +659,6 @@ function M.show_restore_menu(window, pane)
 			local state = load_workspace_state(workspace_name)
 
 			if state then
-				close_picker(win, p)
 				win:perform_action(
 					act.SwitchToWorkspace({
 						name = workspace_name,
@@ -671,31 +688,7 @@ function M.apply_to_config(config, opts)
 		config.keys = {}
 	end
 
-	-- Define the workspace keytable
-	config.key_tables = config.key_tables or {}
-	config.key_tables["workspace_picker"] = {
-		-- Show workspace selector
-		{ key = "w", action = wezterm.action_callback(function(win, pane)
-			M.show_workspace_selector(win, pane)
-		end) },
-
-		-- Create workspace
-		{ key = "c", action = M.create_workspace_manually() },
-
-		-- Rename workspace
-		{ key = "e", action = M.rename_workspace() },
-
-		-- Save all workspaces
-		{ key = "s", action = M.save_all_workspaces() },
-
-		-- Restore all workspaces
-		{ key = "r", action = M.restore_all_workspaces() },
-
-		-- Quit keytable
-		{ key = "Escape", action = act.PopKeyTable },
-	}
-
-	-- Activate keytable
+	-- Activate the workspace picker
 	if cfg.activate_keytable then
 		local filtered_keys = {}
 		for _, binding in ipairs(config.keys) do
