@@ -109,7 +109,7 @@ workspace_picker.apply_to_config(config)
 
 -- Or override on apply
 workspace_picker.apply_to_config(config, {
-	keybinds = { show_picker = { mods = "CMD", key = "p" } }
+	activate_keytable = { mods = "CMD", key = "p" }
 })
 ```
 
@@ -211,48 +211,31 @@ colors = {
 
 ---
 
-### `keybinds`
+### `activate_keytable`
 
-**Type:** table or nil
+**Type:** table or boolean
 **Default:**
 ```lua
 {
-	show_picker = { mods = "LEADER", key = "s" },
-	create_workspace = { mods = "LEADER", key = "S" },
-	rename_workspace = { mods = "LEADER", key = "r" },
+	mods = "LEADER",
+	key = "w",
 }
 ```
 
-Keybinding configuration. Set to `nil` to disable automatic keybinding setup.
+Controls the key used to open the workspace picker key table. Set to `false` to disable automatic activation.
 
 **Options:**
-- `show_picker`: Keybind for workspace picker
-- `create_workspace`: Keybind for manual workspace creation
-- `rename_workspace`: Keybind for renaming workspace
-
-Each keybind has:
-- `mods`: Modifier keys (`"LEADER"`, `"CMD"`, `"CTRL"`, `"ALT"`, `"SHIFT"`, or combinations like `"CMD|SHIFT"`)
+- `mods`: Modifier keys for the opener
 - `key`: Key to press
 
 **Examples:**
 
 ```lua
 -- Use CMD instead of LEADER
-keybinds = {
-	show_picker = { mods = "CMD", key = "p" },
-	create_workspace = { mods = "CMD|SHIFT", key = "p" },
-	rename_workspace = { mods = "CMD", key = "r" },
-}
+activate_keytable = { mods = "CMD", key = "p" }
 
--- Disable specific keybinds
-keybinds = {
-	show_picker = { mods = "LEADER", key = "s" },
-	create_workspace = nil, -- Disabled
-	rename_workspace = nil, -- Disabled
-}
-
--- Disable all automatic keybinds
-keybinds = nil
+-- Disable automatic activation
+activate_keytable = false
 ```
 
 ## Advanced Examples
@@ -280,6 +263,7 @@ workspace_picker.setup({
 		text = "#c8d0e0",
 		path = "#565f89",
 	},
+	activate_keytable = { mods = "LEADER", key = "w" },
 })
 
 -- Apply plugin keybindings
@@ -305,7 +289,7 @@ local config = wezterm.config_builder()
 
 -- Setup without automatic keybindings
 workspace_picker.setup({
-	keybinds = nil,
+	activate_keytable = false,
 	colors = { workspace_prefix = "#a6e3a1" },
 })
 

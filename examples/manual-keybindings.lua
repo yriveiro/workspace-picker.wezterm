@@ -11,7 +11,7 @@ config.font = wezterm.font("JetBrains Mono")
 
 -- Setup workspace picker WITHOUT automatic keybindings
 workspace_picker.setup({
-	keybinds = nil, -- Disable automatic keybinding setup
+	activate_keytable = false,
 
 	-- Still customize colors and zoxide path
 	zoxide_path = "/opt/homebrew/bin/zoxide",

@@ -38,18 +38,21 @@ return config
 
 | Key | Action |
 |-----|--------|
-| `LEADER` + `s` | Show workspace picker (with zoxide integration) |
-| `LEADER` + `S` | Create new workspace manually |
-| `LEADER` + `r` | Rename current workspace |
-
-> **Note**: `LEADER` key must be configured in your WezTerm config. See [WezTerm Leader Key docs](https://wezfurlong.org/wezterm/config/keys.html#leader-key).
+| `LEADER` + `w` | Open workspace picker |
 
 ### In the Picker
 
+- `w`: Show workspace selector
+- `s`: Save all workspaces
+- `r`: Restore all saved workspaces
+- `c`: Create new workspace manually
+- `e`: Rename current workspace
+- `q` or `Esc`: Close the picker
 - Use `↑`/`↓` or `j`/`k` to navigate
 - Press `/` to start fuzzy search
 - Press `Enter` to select
-- Press `Esc` to cancel
+
+> **Note**: `LEADER` key must be configured in your WezTerm config. See [WezTerm Leader Key docs](https://wezfurlong.org/wezterm/config/keys.html#leader-key).
 
 ### Screenshots
 
@@ -84,17 +87,12 @@ workspace_picker.setup({
 
 	-- Custom labels
 	labels = {
-		workspace = "[Workspace]",    -- Label for workspace entries
-		zoxide = "[Zoxide]",          -- Label for zoxide entries
-		current = "<- current",        -- Indicator for current workspace
+		workspace = "[Workspace]", -- Label for workspace entries
+		zoxide = "[Zoxide]", -- Label for zoxide entries
+		current = "<- current", -- Indicator for current workspace
 	},
+	activate_keytable = { mods = "LEADER", key = "w" },
 
-	-- Custom keybindings (set to nil to disable)
-	keybinds = {
-		show_picker = { mods = "LEADER", key = "s" },
-		create_workspace = { mods = "LEADER", key = "S" },
-		rename_workspace = { mods = "LEADER", key = "r" },
-	},
 })
 
 -- Apply to config
@@ -108,9 +106,8 @@ If you want to set up keybindings manually:
 ```lua
 local workspace_picker = wezterm.plugin.require("https://github.com/isseii10/workspace-picker.wezterm")
 
--- Don't apply default keybindings
 workspace_picker.setup({
-	keybinds = nil, -- Disable automatic keybinding setup
+	activate_keytable = false,
 })
 
 -- Set up your own keybindings
@@ -132,22 +129,26 @@ You can also use the plugin's functions directly:
 ```lua
 local workspace_picker = wezterm.plugin.require("https://github.com/isseii10/workspace-picker.wezterm")
 
+workspace_picker.setup({
+	activate_keytable = false,
+})
+
 config.keys = {
 	{
-		key = "w",
+		key = "p",
 		mods = "LEADER",
 		action = wezterm.action_callback(function(win, pane)
 			workspace_picker.show_workspace_selector(win, pane)
 		end),
 	},
 	{
-		key = "W",
+		key = "c",
 		mods = "LEADER",
 		action = workspace_picker.create_workspace_manually(),
 	},
 	{
-		key = "R",
-		mods = "LEADER|SHIFT",
+		key = "e",
+		mods = "LEADER",
 		action = workspace_picker.rename_workspace(),
 	},
 }
