@@ -269,8 +269,7 @@ function M.save_workspace()
 			if line then
 				local active_workspace = wezterm.mux.get_active_workspace()
 				local save_state = {
-					name = active_workspace,
-					path = Cwd.get_workspace_path(active_workspace, pane),
+					cwd = Cwd.get_workspace_path(active_workspace, pane),
 					timestamp = os.time(),
 				}
 				local ok = State.save_workspace_state(line, save_state)
@@ -299,8 +298,7 @@ function M.save_all_workspaces()
 
 		for _, workspace_name in ipairs(workspace_names) do
 			local save_state = {
-				name = workspace_name,
-				path = Cwd.get_workspace_path(workspace_name, workspace_name == active_workspace and pane or nil),
+				cwd = Cwd.get_workspace_path(workspace_name, workspace_name == active_workspace and pane or nil),
 				timestamp = timestamp,
 			}
 
@@ -409,9 +407,9 @@ function M.show_restore_menu(window, pane)
 					name = workspace_name,
 				}
 
-				if not existing[workspace_name] and type(saved_state.path) == "string" and saved_state.path ~= "" then
+				if not existing[workspace_name] and type(saved_state.cwd) == "string" and saved_state.cwd ~= "" then
 					switch_args.spawn = {
-						cwd = saved_state.path,
+						cwd = saved_state.cwd,
 					}
 				end
 
