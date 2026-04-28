@@ -20,91 +20,40 @@ local act = wezterm.action
 
 local M = {}
 
+local selector_alphabet = "q1234567890abcdefghilmnoprstuvwxyz"
+
+local function escape_lua_pattern(text)
+	return text:gsub("(%W)", "%%%1")
+end
+
 -- Get the data directory path following XDG spec
 ---@return string
 local function get_data_dir()
-	local data_dir
-
-	-- Check if running on macOS
-	local handle = io.popen("uname -s")
-	local uname = handle and handle:read("*a") or ""
-	if handle then handle:close() end
-	local is_macos = uname:match("Darwin")
-
-	if is_macos then
-		-- On macOS, force use default Linux path
-		local home = os.getenv("HOME")
-		data_dir = home and home .. "/.local/share/workspace-picker" or nil
-	else
-		-- On Linux, use XDG_DATA_HOME if set
-		local xdg_data = os.getenv("XDG_DATA_HOME")
-		if xdg_data then
-			data_dir = xdg_data .. "/workspace-picker"
-		else
-			local home = os.getenv("HOME")
-			data_dir = home and home .. "/.local/share/workspace-picker" or nil
-		end
+	local xdg_data = os.getenv("XDG_DATA_HOME")
+	if xdg_data and xdg_data ~= "" then
+		return xdg_data .. "/workspace-picker"
 	end
 
-	return data_dir or ""
+	return wezterm.home_dir .. "/.local/share/workspace-picker"
 end
 
--- Ensure data directory exists
----@return boolean
-local function ensure_data_dir()
-	local data_dir = get_data_dir()
-	if data_dir == "" then
-		return false
-	end
-
-	local cmd = string.format("mkdir -p %s 2>/dev/null", data_dir)
-	local handle = io.popen(cmd)
-	if handle then
-		handle:close()
-		return true
-	end
-	return false
-end
-
--- Save workspace state to file
 ---@param workspace_name string
----@param state table|nil
----@return boolean
-local function save_workspace_state(workspace_name, state)
-	if not ensure_data_dir() then
-		return false
-	end
-
-	local data_dir = get_data_dir()
-	local file_path = data_dir .. "/" .. workspace_name .. ".json"
-
-	local file = io.open(file_path, "w")
-	if not file then
-		return false
-	end
-
-	local json_state = require("json")
-	local ok, json_str = pcall(json_state.encode, state or {})
-	if not ok then
-		file:close()
-		return false
-	end
-
-	file:write(json_str)
-	file:close()
-	return true
+---@return string
+local function workspace_state_path(workspace_name)
+	return get_data_dir() .. "/" .. workspace_name .. ".lua"
 end
 
--- Load workspace state from file
----@param workspace_name string
----@return table|nil
-local function load_workspace_state(workspace_name)
-	local data_dir = get_data_dir()
-	if data_dir == "" then
-		return nil
-	end
+local function serialize_workspace_state(state)
+	state = state or {}
 
-	local file_path = data_dir .. "/" .. workspace_name .. ".json"
+	return string.format(
+		"return {\n  name = %q,\n  timestamp = %d,\n}\n",
+		tostring(state.name or ""),
+		tonumber(state.timestamp) or 0
+	)
+end
+
+local function read_file_contents(file_path)
 	local file = io.open(file_path, "r")
 	if not file then
 		return nil
@@ -117,31 +66,98 @@ local function load_workspace_state(workspace_name)
 		return nil
 	end
 
-	local json_state = require("json")
-	local ok, state = pcall(json_state.decode, content)
-	if not ok then
+	return content
+end
+
+local function load_lua_workspace_state(content, file_path)
+	local chunk = load(content, "@" .. file_path, "t", {})
+	if not chunk then
+		return nil
+	end
+
+	local ok, state = pcall(chunk)
+	if not ok or type(state) ~= "table" then
 		return nil
 	end
 
 	return state
 end
 
--- Delete workspace state file
----@param workspace_name string
+-- Ensure data directory exists
 ---@return boolean
-local function delete_workspace_state(workspace_name)
+local function ensure_data_dir()
 	local data_dir = get_data_dir()
 	if data_dir == "" then
 		return false
 	end
 
-	local file_path = data_dir .. "/" .. workspace_name .. ".json"
-	local cmd = string.format("rm -f %s", file_path)
-	local handle = io.popen(cmd)
-	if handle then
-		handle:close()
+	if wezterm.target_triple:find("windows") then
+		local command = string.format(
+			"New-Item -ItemType Directory -Force -LiteralPath '%s' | Out-Null",
+			data_dir:gsub("'", "''")
+		)
+		local ok = wezterm.run_child_process({ "powershell.exe", "-NoProfile", "-Command", command })
+		return ok
+	end
+
+	local ok = wezterm.run_child_process({ "mkdir", "-p", data_dir })
+	return ok
+end
+
+-- Save workspace state to file
+---@param workspace_name string
+---@param state table|nil
+---@return boolean
+local function save_workspace_state(workspace_name, state)
+	if not ensure_data_dir() then
+		return false
+	end
+
+	local file_path = workspace_state_path(workspace_name)
+
+	local file = io.open(file_path, "w")
+	if not file then
+		return false
+	end
+
+	local serialized = serialize_workspace_state(state)
+	local ok = file:write(serialized)
+	file:close()
+	return ok ~= nil
+end
+
+-- Load workspace state from file
+---@param workspace_name string
+---@return table|nil
+local function load_workspace_state(workspace_name)
+	local file_path = workspace_state_path(workspace_name)
+	local content = read_file_contents(file_path)
+	if content then
+		local state = load_lua_workspace_state(content, file_path)
+		if state then
+			return state
+		end
+	end
+
+	return nil
+end
+
+-- Delete workspace state file
+---@param workspace_name string
+---@return boolean
+local function delete_workspace_state(workspace_name)
+	local ok, err = os.remove(workspace_state_path(workspace_name))
+	if ok then
 		return true
 	end
+
+	if type(err) == "string" then
+		local lowered = err:lower()
+		if lowered:find("no such file", 1, true) or lowered:find("cannot find", 1, true) then
+			return true
+		end
+	end
+
 	return false
 end
 
@@ -153,19 +169,13 @@ local function get_saved_workspaces()
 		return {}
 	end
 
-	local cmd = string.format("ls -1 %s/*.json 2>/dev/null | xargs -n1 basename 2>/dev/null", data_dir)
-	local handle = io.popen(cmd)
-	if not handle then
-		return {}
-	end
-
-	local result = handle:read("*a")
-	handle:close()
-
 	local workspaces = {}
-	for file in result:gmatch("[^\r\n]+") do
-		local ws_name = file:match("^(.+)%.json$")
-		if ws_name then
+	local seen = {}
+
+	for _, file in ipairs(wezterm.glob(data_dir .. "/*.lua", data_dir) or {}) do
+		local ws_name = file:match("([^/\\]+)%.lua$")
+		if ws_name and not seen[ws_name] then
+			seen[ws_name] = true
 			table.insert(workspaces, ws_name)
 		end
 	end
@@ -173,11 +183,44 @@ local function get_saved_workspaces()
 	return workspaces
 end
 
--- Default configuration
----@type WorkspacePickerConfig
-local default_config = {
-	-- Path to zoxide command
-	zoxide_path = "/opt/homebrew/bin/zoxide",
+-- Show a user-facing notification
+---@param window any
+---@param title string
+---@param body string
+local function notify(window, title, body)
+	window:toast_notification(title, body)
+end
+
+local function close_picker(window, pane)
+	window:perform_action(act.PopKeyTable, pane)
+end
+
+local function make_quit_choice()
+	return {
+		id = "quit",
+		label = "q  Close picker",
+	}
+end
+
+local function show_input_selector(window, pane, opts)
+	window:perform_action(
+		act.InputSelector({
+			action = wezterm.action_callback(opts.on_select),
+			title = opts.title,
+			choices = opts.choices,
+			alphabet = selector_alphabet,
+			description = opts.description,
+			fuzzy_description = opts.fuzzy_description,
+		}),
+		pane
+	)
+end
+
+	-- Default configuration
+	---@type WorkspacePickerConfig
+	local default_config = {
+		-- Path to zoxide command
+		zoxide_path = "/opt/homebrew/bin/zoxide",
 	-- Color settings
 	colors = {
 		workspace_prefix = "#9ece6a", -- Green
@@ -187,14 +230,14 @@ local default_config = {
 		path = "#565f89", -- Dark gray
 	},
 	-- Label settings
-	labels = {
-		workspace = "[Workspace]",
-		zoxide = "[Zoxide]",
-		current = "<- current",
-	},
-	-- Keybind to activate workspace keytable (set to nil to disable)
-	activate_keytable = { mods = "LEADER", key = "w" },
-}
+		labels = {
+			workspace = "[Workspace]",
+			zoxide = "[Zoxide]",
+			current = "<- current",
+		},
+		-- Keybind to open the workspace picker (set to false to disable)
+		activate_keytable = { mods = "LEADER", key = "w" },
+	}
 
 -- Store user configuration
 ---@type WorkspacePickerConfig|nil
@@ -247,24 +290,22 @@ end
 ---@return string[]
 local function get_zoxide_directories()
 	local config = user_config or default_config
-	local zoxide_cmd = config.zoxide_path .. " query -l 2>/dev/null"
-
-	local handle = io.popen(zoxide_cmd)
-	if not handle then
+	local success, stdout, stderr = wezterm.run_child_process({ config.zoxide_path, "query", "-l" })
+	if not success then
 		wezterm.log_warn("workspace-picker: Failed to execute zoxide command")
+		if stderr and stderr ~= "" then
+			wezterm.log_warn(stderr)
+		end
 		return {}
 	end
 
-	local result = handle:read("*a")
-	handle:close()
-
 	local directories = {}
-	for d in result:gmatch("[^\r\n]+") do
+	for d in stdout:gmatch("[^\r\n]+") do
 		-- Replace home directory with ~
-		local home = os.getenv("HOME")
+		local home = wezterm.home_dir
 		local normalized_d = d
-		if home then
-			normalized_d = d:gsub("^" .. home, "~")
+		if home and home ~= "" then
+			normalized_d = d:gsub("^" .. escape_lua_pattern(home), "~")
 		end
 		table.insert(directories, normalized_d)
 	end
@@ -288,6 +329,7 @@ function M.show_workspace_selector(window, pane)
 
 	---@type WorkspacePickerChoice[]
 	local choices = {}
+	table.insert(choices, make_quit_choice())
 
 	-- Add existing workspace list
 	for _, name in ipairs(wezterm.mux.get_workspace_names()) do
@@ -351,49 +393,52 @@ function M.show_workspace_selector(window, pane)
 		end
 	end
 
-	-- Launch selection menu
-	window:perform_action(
-		act.InputSelector({
-			action = wezterm.action_callback(function(win, p, id, label)
-				if not id or id == "separator" then
-					wezterm.log_info("Selection canceled or separator clicked")
-					return
+	show_input_selector(window, pane, {
+		title = "(wezterm) Select workspace",
+		choices = choices,
+		description = "(wezterm) Select workspace or directory: ['/': search]",
+		fuzzy_description = "(wezterm) Select workspace or directory: ",
+		on_select = function(win, p, id)
+			if not id then
+				close_picker(win, p)
+				return
+			end
+
+			if id == "quit" then
+				close_picker(win, p)
+				return
+			end
+
+			if id == "separator" then
+				wezterm.log_info("Selection canceled or separator clicked")
+				return
+			end
+
+			if id:match("^ws:") then
+				local workspace_name = id:gsub("^ws:", "")
+				close_picker(win, p)
+				win:perform_action(act.SwitchToWorkspace({ name = workspace_name }), p)
+			elseif id:match("^zoxide:") then
+				local dir = id:gsub("^zoxide:", "")
+				local home = wezterm.home_dir
+				if home and home ~= "" then
+					dir = dir:gsub("^~", home)
 				end
 
-				-- Branch processing based on id prefix
-				if id:match("^ws:") then
-					-- Switch to existing workspace
-					local workspace_name = id:gsub("^ws:", "")
-					win:perform_action(act.SwitchToWorkspace({ name = workspace_name }), p)
-				elseif id:match("^zoxide:") then
-					-- Create new workspace from zoxide directory
-					local dir = id:gsub("^zoxide:", "")
-					-- Convert ~ back to home directory
-					local home = os.getenv("HOME")
-					if home then
-						dir = dir:gsub("^~", home)
-					end
-
-					local workspace_name = dir:match("([^/]+)$")
-					win:perform_action(
-						act.SwitchToWorkspace({
-							name = workspace_name,
-							spawn = {
-								cwd = dir,
-							},
-						}),
-						p
-					)
-				end
-			end),
-			title = "(wezterm) Select workspace",
-			choices = choices,
-			alphabet = "", -- Disable character key search (j/k can be used for navigation)
-			description = "(wezterm) Select workspace or directory: ['/': search]",
-			fuzzy_description = "(wezterm) Select workspace or directory: ",
-		}),
-		pane
-	)
+				local workspace_name = dir:match("([^/]+)$")
+				close_picker(win, p)
+				win:perform_action(
+					act.SwitchToWorkspace({
+						name = workspace_name,
+						spawn = {
+							cwd = dir,
+						},
+					}),
+					p
+				)
+			end
+		end,
+	})
 end
 
 -- Rename workspace
@@ -441,12 +486,106 @@ function M.save_workspace()
 				local ok = save_workspace_state(line, state)
 				if ok then
 					wezterm.log_info("workspace-picker: Saved workspace as '" .. line .. "'")
+					notify(win, "Workspace Saved", "Saved workspace as '" .. line .. "'.")
 				else
 					wezterm.log_warn("workspace-picker: Failed to save workspace '" .. line .. "'")
+					notify(win, "Workspace Save Failed", "Failed to save workspace as '" .. line .. "'.")
 				end
 			end
 		end),
 	})
+end
+
+-- Save all current workspaces
+---@return any -- wezterm.Action
+function M.save_all_workspaces()
+	return wezterm.action_callback(function(win, pane)
+		local workspace_names = wezterm.mux.get_workspace_names()
+		table.sort(workspace_names)
+
+		local saved = 0
+		local failed = {}
+		local timestamp = os.time()
+
+		for _, workspace_name in ipairs(workspace_names) do
+			local state = {
+				name = workspace_name,
+				timestamp = timestamp,
+			}
+
+			if save_workspace_state(workspace_name, state) then
+				saved = saved + 1
+			else
+				table.insert(failed, workspace_name)
+			end
+		end
+
+		if #failed == 0 then
+			wezterm.log_info("workspace-picker: Saved " .. saved .. " workspaces")
+			notify(win, "Workspaces Saved", "Saved " .. saved .. " workspaces successfully.")
+		else
+			wezterm.log_warn(
+				"workspace-picker: Saved " .. saved .. " workspaces, failed for: " .. table.concat(failed, ", ")
+			)
+			notify(win, "Workspace Save Completed With Errors", "Saved " .. saved .. " workspaces, failed for: " .. table.concat(failed, ", "))
+		end
+
+		close_picker(win, pane)
+	end)
+end
+
+-- Restore all saved workspaces
+---@return any -- wezterm.Action
+function M.restore_all_workspaces()
+	return wezterm.action_callback(function(win, pane)
+		local saved = get_saved_workspaces()
+		if #saved == 0 then
+			close_picker(win, pane)
+			notify(win, "No Saved Workspaces", "No saved workspaces found. Open the picker, then press s.")
+			return
+		end
+
+		local existing = {}
+		for _, workspace_name in ipairs(wezterm.mux.get_workspace_names()) do
+			existing[workspace_name] = true
+		end
+
+		table.sort(saved)
+
+		local restored = 0
+		local skipped = 0
+		local failed = {}
+
+		for _, workspace_name in ipairs(saved) do
+			if existing[workspace_name] then
+				skipped = skipped + 1
+			else
+				local ok = pcall(wezterm.mux.spawn_window, { workspace = workspace_name })
+				if ok then
+					restored = restored + 1
+				else
+					table.insert(failed, workspace_name)
+				end
+			end
+		end
+
+		close_picker(win, pane)
+
+		if #failed == 0 then
+			wezterm.log_info(
+				"workspace-picker: Restored " .. restored .. " workspaces" .. (skipped > 0 and " (" .. skipped .. " already existed)" or "")
+			)
+			notify(win, "Workspaces Restored", "Restored " .. restored .. " workspaces" .. (skipped > 0 and " (" .. skipped .. " already existed)" or "") .. ".")
+		else
+			wezterm.log_warn(
+				"workspace-picker: Restored "
+					.. restored
+					.. " workspaces, failed for: "
+					.. table.concat(failed, ", ")
+			)
+			notify(win, "Workspace Restore Completed With Errors", "Restored " .. restored .. " workspaces, failed for: " .. table.concat(failed, ", "))
+		end
+	end)
 end
 
 -- Show restore workspace menu
@@ -455,15 +594,10 @@ end
 ---@return nil
 function M.show_restore_menu(window, pane)
 	local saved = get_saved_workspaces()
+	table.sort(saved)
 
 	if #saved == 0 then
-		window:perform_action(
-			act.Notification({
-				title = "No Saved Workspaces",
-				body = "No saved workspaces found. Use Leader+W to save one.",
-			}),
-			pane
-		)
+		notify(window, "No Saved Workspaces", "No saved workspaces found. Open the picker, then press s.")
 		return
 	end
 
@@ -473,6 +607,7 @@ function M.show_restore_menu(window, pane)
 
 	---@type WorkspacePickerRestoreChoice[]
 	local choices = {}
+	table.insert(choices, make_quit_choice())
 
 	for _, name in ipairs(saved) do
 		local state = load_workspace_state(name)
@@ -491,36 +626,36 @@ function M.show_restore_menu(window, pane)
 		})
 	end
 
-	window:perform_action(
-		act.InputSelector({
-			action = wezterm.action_callback(function(win, p, id, label)
-				if not id then
-					return
-				end
+	show_input_selector(window, pane, {
+		title = "(wezterm) Restore workspace",
+		choices = choices,
+		description = "(wezterm) Restore a saved workspace: ",
+		fuzzy_description = "(wezterm) Restore workspace: ",
+		on_select = function(win, p, id)
+			if not id or id == "quit" then
+				close_picker(win, p)
+				return
+			end
 
-				local workspace_name = id:gsub("^restore:", "")
-				local state = load_workspace_state(workspace_name)
+			local workspace_name = id:gsub("^restore:", "")
+			local state = load_workspace_state(workspace_name)
 
-				if state then
-					win:perform_action(
-						act.SwitchToWorkspace({
-							name = workspace_name,
-						}),
-						p
-					)
-					wezterm.log_info("workspace-picker: Restored workspace '" .. workspace_name .. "'")
-				else
-					wezterm.log_warn("workspace-picker: Failed to load workspace state for '" .. workspace_name .. "'")
-				end
-			end),
-			title = "(wezterm) Restore workspace",
-			choices = choices,
-			alphabet = "",
-			description = "(wezterm) Restore a saved workspace: ",
-			fuzzy_description = "(wezterm) Restore workspace: ",
-		}),
-		pane
-	)
+			if state then
+				close_picker(win, p)
+				win:perform_action(
+					act.SwitchToWorkspace({
+						name = workspace_name,
+					}),
+					p
+				)
+				wezterm.log_info("workspace-picker: Restored workspace '" .. workspace_name .. "'")
+				notify(win, "Workspace Restored", "Restored workspace '" .. workspace_name .. "'.")
+			else
+				wezterm.log_warn("workspace-picker: Failed to load workspace state for '" .. workspace_name .. "'")
+				notify(win, "Workspace Restore Failed", "Failed to load workspace state for '" .. workspace_name .. "'.")
+			end
+		end,
+	})
 end
 
 -- Add keybindings to config
@@ -550,41 +685,32 @@ function M.apply_to_config(config, opts)
 		-- Rename workspace
 		{ key = "e", action = M.rename_workspace() },
 
-		-- Save workspace (auto-pop keytable after)
-		{ key = "s", action = wezterm.action_callback(function(win, pane)
-			local name = wezterm.mux.get_active_workspace()
-			local state = {
-				name = name,
-				timestamp = os.time(),
-			}
-			local ok = save_workspace_state(name, state)
-			if ok then
-				wezterm.log_info("workspace-picker: Saved workspace '" .. name .. "'")
-			else
-				wezterm.log_warn("workspace-picker: Failed to save workspace '" .. name .. "'")
-			end
-			win:perform_action("PopKeyTable", pane)
-		end) },
+		-- Save all workspaces
+		{ key = "s", action = M.save_all_workspaces() },
 
-		-- Restore workspace
-		{ key = "r", action = wezterm.action_callback(function(win, pane)
-			M.show_restore_menu(win, pane)
-		end) },
+		-- Restore all workspaces
+		{ key = "r", action = M.restore_all_workspaces() },
 
 		-- Quit keytable
-		{ key = "q", action = "PopKeyTable" },
-		{ key = "Escape", action = "PopKeyTable" },
+		{ key = "Escape", action = act.PopKeyTable },
 	}
 
 	-- Activate keytable
 	if cfg.activate_keytable then
+		local filtered_keys = {}
+		for _, binding in ipairs(config.keys) do
+			if binding.mods ~= cfg.activate_keytable.mods or binding.key ~= cfg.activate_keytable.key then
+				table.insert(filtered_keys, binding)
+			end
+		end
+		config.keys = filtered_keys
+
 		table.insert(config.keys, {
 			mods = cfg.activate_keytable.mods,
 			key = cfg.activate_keytable.key,
-			action = act.ActivateKeyTable({
-				name = "workspace_picker",
-				one_shot = false,
-			}),
+			action = wezterm.action_callback(function(win, pane)
+				M.show_workspace_selector(win, pane)
+			end),
 		})
 	end
 
@@ -594,26 +720,6 @@ end
 -- Get data directory (for external use)
 function M.get_data_dir()
 	return get_data_dir()
-end
-
--- Delete a saved workspace
----@param workspace_name string
----@return boolean
-function M.delete_workspace(workspace_name)
-	return delete_workspace_state(workspace_name)
-end
-
--- Get list of saved workspaces
----@return string[]
-function M.get_saved_workspaces()
-	return get_saved_workspaces()
-end
-
--- Load workspace state
----@param workspace_name string
----@return table|nil
-function M.load_workspace(workspace_name)
-	return load_workspace_state(workspace_name)
 end
 
 return M

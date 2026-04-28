@@ -28,11 +28,14 @@ workspace_picker.setup({
 		path = "#6c7086", -- Subtext
 	},
 
-	-- Custom keybindings
-	keybinds = {
-		show_picker = { mods = "LEADER", key = "w" }, -- Changed from 's' to 'w'
-		create_workspace = { mods = "LEADER", key = "W" }, -- Shift+W
-		rename_workspace = { mods = "LEADER", key = "R" }, -- Shift+R
+	-- Open picker with Leader+w
+	activate_keytable = { mods = "LEADER", key = "w" },
+
+	-- Set up picker actions
+	labels = {
+		workspace = "[Workspace]",
+		zoxide = "[Zoxide]",
+		current = "<- current",
 	},
 })
 
