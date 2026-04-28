@@ -4,10 +4,40 @@ Detailed configuration options and API reference for workspace-picker.wezterm.
 
 ## Table of Contents
 
+- [Quick Reference](#quick-reference)
 - [API Reference](#api-reference)
 - [Configuration Options](#configuration-options)
 - [Advanced Examples](#advanced-examples)
-- [Integration Patterns](#integration-patterns)
+
+> [!TIP]
+> Start with [`README.md`](../README.md) for installation and workflow overview, then use this guide for the full API and option reference.
+
+## Quick Reference
+
+### API Summary
+
+| Function | Returns | Purpose |
+| --- | --- | --- |
+| `setup(opts)` | plugin module | Set the active plugin configuration |
+| `apply_to_config(config, opts)` | config table | Apply config and add the default picker keybinding |
+| `show_workspace_selector(window, pane)` | `nil` | Open the main picker UI |
+| `save_workspace()` | WezTerm action | Save the active workspace under a chosen name |
+| `save_all_workspaces()` | WezTerm action | Save every live workspace |
+| `show_restore_menu(window, pane)` | `nil` | Open the saved-workspace restore picker |
+| `show_delete_menu(window, pane)` | `nil` | Delete saved workspace entries from disk |
+| `restore_all_workspaces()` | WezTerm action | Restore all saved workspaces immediately |
+| `restore_workspaces_on_gui_startup(cmd)` | `nil` | Startup restore handler for `gui-startup` |
+| `get_data_dir()` | `string` | Return the saved state directory |
+
+### Config Summary
+
+| Option | Type | Default |
+| --- | --- | --- |
+| `zoxide_path` | `string` | `"/opt/homebrew/bin/zoxide"` |
+| `colors` | `table` | Built-in Tokyo Night-inspired palette |
+| `labels` | `table` | `workspace`, `zoxide`, and `current` labels |
+| `activate_keytable` | `table` or `false` | `{ mods = "LEADER", key = "w" }` |
+| `restore_on_gui_startup` | `boolean` | `true` |
 
 ## API Reference
 
@@ -91,13 +121,140 @@ config.keys = {
 
 ---
 
+### `save_workspace()`
+
+Returns an action that prompts for a saved workspace name and persists the current workspace state.
+
+The saved state includes the working directory used when restoring that workspace later.
+
+**Returns:** WezTerm action
+
+**Usage:**
+```lua
+config.keys = {
+	{
+		key = "s",
+		mods = "LEADER",
+		action = workspace_picker.save_workspace(),
+	},
+}
+```
+
+---
+
+### `save_all_workspaces()`
+
+Returns an action that saves every live workspace.
+
+**Returns:** WezTerm action
+
+**Usage:**
+```lua
+config.keys = {
+	{
+		key = "S",
+		mods = "LEADER|SHIFT",
+		action = workspace_picker.save_all_workspaces(),
+	},
+}
+```
+
+---
+
+### `show_restore_menu(window, pane)`
+
+Display the saved-workspace restore UI.
+
+**Parameters:**
+- `window` (object): WezTerm window object
+- `pane` (object): WezTerm pane object
+
+**Usage:**
+```lua
+config.keys = {
+	{
+		key = "R",
+		mods = "LEADER|SHIFT",
+		action = wezterm.action_callback(function(win, pane)
+			workspace_picker.show_restore_menu(win, pane)
+		end),
+	},
+}
+```
+
+---
+
+### `show_delete_menu(window, pane)`
+
+Display the saved-workspace delete UI.
+
+> [!IMPORTANT]
+> This deletes saved workspace entries from disk. It does not close or delete live WezTerm workspaces.
+
+**Parameters:**
+- `window` (object): WezTerm window object
+- `pane` (object): WezTerm pane object
+
+**Usage:**
+```lua
+config.keys = {
+	{
+		key = "D",
+		mods = "LEADER|SHIFT",
+		action = wezterm.action_callback(function(win, pane)
+			workspace_picker.show_delete_menu(win, pane)
+		end),
+	},
+}
+```
+
+---
+
+### `restore_all_workspaces()`
+
+Returns an action that restores every saved workspace immediately.
+
+This is mainly useful for manual restore flows. If `restore_on_gui_startup = true`, startup restore is handled automatically.
+
+**Returns:** WezTerm action
+
+**Usage:**
+```lua
+config.keys = {
+	{
+		key = "A",
+		mods = "LEADER|SHIFT",
+		action = workspace_picker.restore_all_workspaces(),
+	},
+}
+```
+
+---
+
+### `restore_workspaces_on_gui_startup(cmd)`
+
+Restore saved workspaces during the `gui-startup` event.
+
+> [!NOTE]
+> You usually do not call this directly. It is registered automatically when `restore_on_gui_startup = true`.
+
+**Parameters:**
+- `cmd` (table, optional): The `SpawnCommand` passed by WezTerm's `gui-startup` event
+
+---
+
 ### `apply_to_config(config, opts)`
 
-Apply plugin keybindings to WezTerm config.
+Apply plugin configuration and the default picker keybinding to a WezTerm config.
+
+> [!TIP]
+> Use either `setup(opts)` followed by `apply_to_config(config)`, or pass `opts` directly to `apply_to_config(config, opts)` if you prefer a single entrypoint.
+
+If `opts` is provided here, those options become the active plugin configuration.
 
 **Parameters:**
 - `config` (table): WezTerm config object
-- `opts` (table, optional): Configuration overrides (uses setup() config if not provided)
+- `opts` (table, optional): Configuration overrides (uses `setup()` config if not provided)
 
 **Returns:** Modified config object
 
@@ -107,10 +264,25 @@ Apply plugin keybindings to WezTerm config.
 workspace_picker.setup({ ... })
 workspace_picker.apply_to_config(config)
 
--- Or override on apply
+-- Or apply config directly here
 workspace_picker.apply_to_config(config, {
-	activate_keytable = { mods = "CMD", key = "p" }
+	activate_keytable = { mods = "CMD", key = "p" },
+	restore_on_gui_startup = false,
 })
+```
+
+---
+
+### `get_data_dir()`
+
+Return the directory where saved workspace state files are stored.
+
+**Returns:** string
+
+**Usage:**
+```lua
+local data_dir = workspace_picker.get_data_dir()
+wezterm.log_info("workspace-picker data dir: " .. data_dir)
 ```
 
 ## Configuration Options
@@ -211,6 +383,36 @@ colors = {
 
 ---
 
+### `labels`
+
+**Type:** table
+**Default:**
+```lua
+{
+	workspace = "[Workspace]",
+	zoxide = "[Zoxide]",
+	current = "<- current",
+}
+```
+
+Controls the labels shown in the picker UI:
+
+- `workspace`: Prefix for live workspace entries
+- `zoxide`: Prefix for zoxide directory entries
+- `current`: Suffix shown next to the active workspace
+
+**Examples:**
+
+```lua
+labels = {
+	workspace = "[WS]",
+	zoxide = "[DIR]",
+	current = "*",
+}
+```
+
+---
+
 ### `activate_keytable`
 
 **Type:** table or boolean
@@ -238,13 +440,34 @@ activate_keytable = { mods = "CMD", key = "p" }
 activate_keytable = false
 ```
 
+---
+
+### `restore_on_gui_startup`
+
+**Type:** boolean
+**Default:** `true`
+
+Controls whether saved workspaces are restored automatically when WezTerm starts via the `gui-startup` event.
+
+Restore only runs once per GUI startup. Opening a new window later does not trigger another restore, and workspaces that already have live windows are skipped.
+
+**Examples:**
+
+```lua
+-- Disable automatic restore on startup
+restore_on_gui_startup = false
+
+-- Keep the default startup restore behavior
+restore_on_gui_startup = true
+```
+
 ## Advanced Examples
 
 ### Complete WezTerm Config Integration
 
 ```lua
 local wezterm = require("wezterm")
-local workspace_picker = wezterm.plugin.require("https://github.com/YOUR_USERNAME/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 local config = wezterm.config_builder()
 
@@ -256,6 +479,7 @@ config.leader = { key = "Space", mods = "CTRL", timeout_milliseconds = 1000 }
 -- Setup workspace picker with Tokyo Night colors
 workspace_picker.setup({
 	zoxide_path = "/opt/homebrew/bin/zoxide",
+	restore_on_gui_startup = true,
 	colors = {
 		workspace_prefix = "#9ece6a",
 		zoxide_prefix = "#f7768e",
@@ -283,13 +507,14 @@ return config
 
 ```lua
 local wezterm = require("wezterm")
-local workspace_picker = wezterm.plugin.require("https://github.com/YOUR_USERNAME/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 local config = wezterm.config_builder()
 
 -- Setup without automatic keybindings
 workspace_picker.setup({
 	activate_keytable = false,
+	restore_on_gui_startup = false,
 	colors = { workspace_prefix = "#a6e3a1" },
 })
 
@@ -319,7 +544,7 @@ return config
 
 ```lua
 local wezterm = require("wezterm")
-local workspace_picker = wezterm.plugin.require("https://github.com/YOUR_USERNAME/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 local config = wezterm.config_builder()
 
@@ -342,27 +567,9 @@ end
 
 workspace_picker.setup({
 	zoxide_path = zoxide_path,
+	restore_on_gui_startup = true,
 })
 
-workspace_picker.apply_to_config(config)
-
-return config
-```
-
-## Integration Patterns
-
-### With Smart Splits Plugin
-
-```lua
-local wezterm = require("wezterm")
-local workspace_picker = wezterm.plugin.require("https://github.com/YOUR_USERNAME/workspace-picker.wezterm")
-local smart_splits = wezterm.plugin.require("https://github.com/mrjones2014/smart-splits.nvim")
-
-local config = wezterm.config_builder()
-
--- Setup both plugins
-workspace_picker.setup({})
-smart_splits.apply_to_config(config)
 workspace_picker.apply_to_config(config)
 
 return config
@@ -373,7 +580,7 @@ return config
 For advanced customization, you can fork the plugin and modify the label format in `show_workspace_selector()`:
 
 ```lua
--- In plugin/init.lua, modify the label format:
+-- In plugin/workspace_picker/init.lua, modify the workspace label format:
 local label = wezterm.format({
 	{ Foreground = { Color = colors.workspace_prefix } },
 	{ Text = "🚀 " }, -- Add emoji
@@ -383,6 +590,8 @@ local label = wezterm.format({
 	{ Text = " (" .. #panes .. " panes)" }, -- Add pane count
 })
 ```
+
+Saved workspace labels for the restore/delete menus are formatted in `plugin/workspace_picker/ui.lua`.
 
 ### Conditional Zoxide Integration
 

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "$comment": "Add your installed wezterm-types path to workspace.library in your editor or local override config.",
+  "runtime": {
+    "version": "Lua 5.4",
+    "path": [
+      "?.lua",
+      "?/init.lua"
+    ]
+  },
+  "workspace": {
+    "checkThirdParty": false,
+    "useGitIgnore": true,
+    "library": [
+      "${3rd}/luv/library"
+    ]
+  },
+  "diagnostics": {
+    "libraryFiles": "Opened"
+  },
+  "hint": {
+    "enable": true,
+    "paramType": true,
+    "setType": true
+  }
+}

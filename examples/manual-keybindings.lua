@@ -1,7 +1,7 @@
 -- Manual keybindings example: Disable auto-keybindings and set up manually
 
 local wezterm = require("wezterm")
-local workspace_picker = wezterm.plugin.require("https://github.com/YOUR_USERNAME/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 local config = wezterm.config_builder()
 
@@ -12,6 +12,7 @@ config.font = wezterm.font("JetBrains Mono")
 -- Setup workspace picker WITHOUT automatic keybindings
 workspace_picker.setup({
 	activate_keytable = false,
+	restore_on_gui_startup = false,
 
 	-- Still customize colors and zoxide path
 	zoxide_path = "/opt/homebrew/bin/zoxide",

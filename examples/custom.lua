@@ -1,7 +1,7 @@
 -- Custom example: Full customization with theme and keybindings
 
 local wezterm = require("wezterm")
-local workspace_picker = wezterm.plugin.require("https://github.com/YOUR_USERNAME/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 local config = wezterm.config_builder()
 
@@ -30,6 +30,7 @@ workspace_picker.setup({
 
 	-- Open picker with Leader+w
 	activate_keytable = { mods = "LEADER", key = "w" },
+	restore_on_gui_startup = true,
 
 	-- Set up picker actions
 	labels = {

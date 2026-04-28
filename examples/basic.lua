@@ -1,7 +1,7 @@
 -- Basic example: Minimal setup with default settings
 
 local wezterm = require("wezterm")
-local workspace_picker = wezterm.plugin.require("https://github.com/YOUR_USERNAME/workspace-picker.wezterm")
+local workspace_picker = wezterm.plugin.require("https://github.com/yriveiro/workspace-picker.wezterm")
 
 local config = wezterm.config_builder()
 
@@ -13,6 +13,9 @@ config.font = wezterm.font("JetBrains Mono")
 config.leader = { key = "Space", mods = "CTRL", timeout_milliseconds = 1000 }
 
 -- Apply workspace picker with default settings
+workspace_picker.setup({
+	restore_on_gui_startup = true,
+})
 workspace_picker.apply_to_config(config)
 
 return config
