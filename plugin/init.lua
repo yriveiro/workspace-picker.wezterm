@@ -17,7 +17,6 @@
 
 local wezterm = require("wezterm")
 local act = wezterm.action
-local json_state = require("json")
 
 local M = {}
 
@@ -26,10 +25,6 @@ local selector_alphabet = "q1234567890abcdefghilmnoprstuvwxyz"
 local function escape_lua_pattern(text)
 	return text:gsub("(%W)", "%%%1")
 end
-
-wezterm.on("workspace-picker-open", function(win, pane)
-	M.show_workspace_selector(win, pane)
-end)
 
 -- Get the data directory path following XDG spec
 ---@return string
@@ -45,7 +40,47 @@ end
 ---@param workspace_name string
 ---@return string
 local function workspace_state_path(workspace_name)
-	return get_data_dir() .. "/" .. workspace_name .. ".json"
+	return get_data_dir() .. "/" .. workspace_name .. ".lua"
+end
+
+local function serialize_workspace_state(state)
+	state = state or {}
+
+	return string.format(
+		"return {\n  name = %q,\n  timestamp = %d,\n}\n",
+		tostring(state.name or ""),
+		tonumber(state.timestamp) or 0
+	)
+end
+
+local function read_file_contents(file_path)
+	local file = io.open(file_path, "r")
+	if not file then
+		return nil
+	end
+
+	local content = file:read("*a")
+	file:close()
+
+	if content == "" then
+		return nil
+	end
+
+	return content
+end
+
+local function load_lua_workspace_state(content, file_path)
+	local chunk = load(content, "@" .. file_path, "t", {})
+	if not chunk then
+		return nil
+	end
+
+	local ok, state = pcall(chunk)
+	if not ok or type(state) ~= "table" then
+		return nil
+	end
+
+	return state
 end
 
 -- Ensure data directory exists
@@ -85,15 +120,10 @@ local function save_workspace_state(workspace_name, state)
 		return false
 	end
 
-	local ok, json_str = pcall(json_state.encode, state or {})
-	if not ok then
-		file:close()
-		return false
-	end
-
-	file:write(json_str)
+	local serialized = serialize_workspace_state(state)
+	local ok = file:write(serialized)
 	file:close()
-	return true
+	return ok ~= nil
 end
 
 -- Load workspace state from file
@@ -101,32 +131,22 @@ end
 ---@return table|nil
 local function load_workspace_state(workspace_name)
 	local file_path = workspace_state_path(workspace_name)
-	local file = io.open(file_path, "r")
-	if not file then
-		return nil
+	local content = read_file_contents(file_path)
+	if content then
+		local state = load_lua_workspace_state(content, file_path)
+		if state then
+			return state
+		end
 	end
 
-	local content = file:read("*a")
-	file:close()
-
-	if content == "" then
-		return nil
-	end
-
-	local ok, state = pcall(json_state.decode, content)
-	if not ok then
-		return nil
-	end
-
-	return state
+	return nil
 end
 
 -- Delete workspace state file
 ---@param workspace_name string
 ---@return boolean
 local function delete_workspace_state(workspace_name)
-	local file_path = workspace_state_path(workspace_name)
-	local ok, err = os.remove(file_path)
+	local ok, err = os.remove(workspace_state_path(workspace_name))
 	if ok then
 		return true
 	end
@@ -150,9 +170,12 @@ local function get_saved_workspaces()
 	end
 
 	local workspaces = {}
-	for _, file in ipairs(wezterm.glob(data_dir .. "/*.json", data_dir) or {}) do
-		local ws_name = file:gsub("%.json$", "")
-		if ws_name then
+	local seen = {}
+
+	for _, file in ipairs(wezterm.glob(data_dir .. "/*.lua", data_dir) or {}) do
+		local ws_name = file:match("([^/\\]+)%.lua$")
+		if ws_name and not seen[ws_name] then
+			seen[ws_name] = true
 			table.insert(workspaces, ws_name)
 		end
 	end
@@ -193,11 +216,11 @@ local function show_input_selector(window, pane, opts)
 	)
 end
 
--- Default configuration
----@type WorkspacePickerConfig
-local default_config = {
-	-- Path to zoxide command
-	zoxide_path = "/opt/homebrew/bin/zoxide",
+	-- Default configuration
+	---@type WorkspacePickerConfig
+	local default_config = {
+		-- Path to zoxide command
+		zoxide_path = "/opt/homebrew/bin/zoxide",
 	-- Color settings
 	colors = {
 		workspace_prefix = "#9ece6a", -- Green
@@ -207,14 +230,14 @@ local default_config = {
 		path = "#565f89", -- Dark gray
 	},
 	-- Label settings
-	labels = {
-		workspace = "[Workspace]",
-		zoxide = "[Zoxide]",
-		current = "<- current",
-	},
-	-- Keybind to activate workspace keytable (set to false to disable)
-	activate_keytable = { mods = "LEADER", key = "w" },
-}
+		labels = {
+			workspace = "[Workspace]",
+			zoxide = "[Zoxide]",
+			current = "<- current",
+		},
+		-- Keybind to open the workspace picker (set to false to disable)
+		activate_keytable = { mods = "LEADER", key = "w" },
+	}
 
 -- Store user configuration
 ---@type WorkspacePickerConfig|nil
@@ -674,16 +697,20 @@ function M.apply_to_config(config, opts)
 
 	-- Activate keytable
 	if cfg.activate_keytable then
+		local filtered_keys = {}
+		for _, binding in ipairs(config.keys) do
+			if binding.mods ~= cfg.activate_keytable.mods or binding.key ~= cfg.activate_keytable.key then
+				table.insert(filtered_keys, binding)
+			end
+		end
+		config.keys = filtered_keys
+
 		table.insert(config.keys, {
 			mods = cfg.activate_keytable.mods,
 			key = cfg.activate_keytable.key,
-			action = act.Multiple {
-				act.ActivateKeyTable({
-					name = "workspace_picker",
-					one_shot = false,
-				}),
-				act.EmitEvent("workspace-picker-open"),
-			},
+			action = wezterm.action_callback(function(win, pane)
+				M.show_workspace_selector(win, pane)
+			end),
 		})
 	end
 

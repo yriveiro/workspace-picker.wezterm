@@ -42,7 +42,6 @@ return config
 
 ### In the Picker
 
-- `w`: Show workspace selector
 - `s`: Save all workspaces
 - `r`: Restore all saved workspaces
 - `c`: Create new workspace manually

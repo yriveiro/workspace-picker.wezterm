@@ -222,7 +222,7 @@ colors = {
 }
 ```
 
-Controls the key used to open the workspace picker key table. Set to `false` to disable automatic activation.
+Controls the key used to open the workspace picker. Set to `false` to disable automatic activation.
 
 **Options:**
 - `mods`: Modifier keys for the opener

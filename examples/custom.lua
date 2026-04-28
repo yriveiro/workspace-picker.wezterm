@@ -31,7 +31,7 @@ workspace_picker.setup({
 	-- Open picker with Leader+w
 	activate_keytable = { mods = "LEADER", key = "w" },
 
-	-- Set up picker actions from the key table
+	-- Set up picker actions
 	labels = {
 		workspace = "[Workspace]",
 		zoxide = "[Zoxide]",
